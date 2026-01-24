@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -120,6 +121,45 @@ async def create_complaint_remark(
     if not response.data:
         raise HTTPException(status_code=500, detail="Failed to create remark")
     created = response.data[0]
+
+    # --- Trigger Notifications ---
+    try:
+        author_role = profile.get("role")
+        author_name = (profile.get("full_name") or f"{profile.get('first_name', '')} {profile.get('last_name', '')}").strip() or "Someone"
+        ticket_number = complaint_res.data.get("ticket_number") or complaint_id[:8]
+        
+        notif_title = f"New message on #{ticket_number}"
+        content_excerpt = content[:50] + "..." if len(content) > 50 else content
+        notif_message = f"{author_name} sent a message: {content_excerpt}"
+        
+        recipients = []
+        if author_role == "STUDENT":
+            # Notify assigned staff
+            if complaint_res.data.get("assigned_to"):
+                recipients.append({
+                    "user_id": complaint_res.data["assigned_to"],
+                    "link": f"/staff/tickets/{complaint_id}"
+                })
+        else:
+            # Staff or Admin posted, notify student
+            recipients.append({
+                "user_id": complaint_res.data["submitted_by"],
+                "link": f"/student/complaints/{complaint_id}"
+            })
+            
+        for recipient in recipients:
+            supabase_admin.table("notifications").insert({
+                "user_id": recipient["user_id"],
+                "title": notif_title,
+                "message": notif_message,
+                "type": "chat_message",
+                "link": recipient["link"],
+                "is_read": False,
+            }).execute()
+    except Exception as e:
+        # Log error but don't fail the remark creation
+        print(f"Failed to send chat notification: {e}")
+
     # Attach author info for consistent response shape with list endpoint
     first = (profile.get("first_name") or "").strip()
     last = (profile.get("last_name") or "").strip()
@@ -279,21 +319,42 @@ async def update_complaint(
 
     new_assigned_to = updates.get("assigned_to")
     old_assigned_to = c.get("assigned_to")
+    new_status = updates.get("status")
+    old_status = c.get("status")
+    
     is_new_assignment = (
         profile["role"] in ("ADMIN", "STAFF")
         and new_assigned_to
         and new_assigned_to != old_assigned_to
     )
 
-    if updates.get("status") == "RESOLVED" and not updates.get("resolved_at"):
+    if new_status == "RESOLVED" and not updates.get("resolved_at"):
         updates["resolved_at"] = datetime.now(timezone.utc).isoformat()
 
     response = supabase_admin.table("complaints").update(updates).eq("id", complaint_id).execute()
     updated = response.data[0] if response.data else {}
 
-    if is_new_assignment and updated:
+    if not updated:
+        return {}
+
+    ticket_number = updated.get("ticket_number") or complaint_id[:8]
+
+    # Handle resolution notification
+    if new_status == "RESOLVED" and old_status != "RESOLVED":
+        try:
+            supabase_admin.table("notifications").insert({
+                "user_id": updated["submitted_by"],
+                "title": f"Complaint Resolved: #{ticket_number}",
+                "message": f"Your complaint '{updated['title']}' has been marked as resolved. Please provide your feedback.",
+                "type": "STATUS_CHANGE",
+                "link": f"/student/complaints/{complaint_id}",
+                "is_read": False,
+            }).execute()
+        except Exception as e:
+            print(f"Failed to send resolution notification: {e}")
+
+    if is_new_assignment:
         # Notify the assigned staff and add a remark to the thread
-        ticket_number = updated.get("ticket_number") or complaint_id[:8]
         assigner_first = (profile.get("first_name") or "").strip()
         assigner_last = (profile.get("last_name") or "").strip()
         assigner_name = f"{assigner_first} {assigner_last}".strip() or profile.get("full_name") or "Admin"
@@ -304,6 +365,7 @@ async def update_complaint(
             fn = (s.get("first_name") or "").strip()
             ln = (s.get("last_name") or "").strip()
             staff_name = f"{fn} {ln}".strip() or s.get("full_name") or staff_name
+        
         notif_title = "New complaint assignment"
         notif_message = f"You have been assigned to complaint {ticket_number} by {assigner_name}."
         supabase_admin.table("notifications").insert({
@@ -314,6 +376,7 @@ async def update_complaint(
             "link": f"/staff/tickets/{complaint_id}",
             "is_read": False,
         }).execute()
+        
         remark_content = f"{assigner_name} assigned {staff_name} to this complaint."
         supabase_admin.table("complaint_remarks").insert({
             "complaint_id": complaint_id,
