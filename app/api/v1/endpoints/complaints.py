@@ -67,7 +67,9 @@ async def get_complaint(
     complaint_id: str,
     profile: dict = Depends(get_current_user_profile),
 ):
-    response = supabase_admin.table("complaints").select("*").eq("id", complaint_id).single().execute()
+    response = supabase_admin.table("complaints").select(
+        "*, users!submitted_by(full_name, first_name, last_name, email, role, student_id_number)"
+    ).eq("id", complaint_id).single().execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Complaint not found")
     c = response.data
