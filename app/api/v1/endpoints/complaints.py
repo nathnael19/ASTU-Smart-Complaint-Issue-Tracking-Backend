@@ -61,6 +61,78 @@ async def list_complaints(
     return {"data": response.data, "total": response.count}
 
 
+def _can_access_complaint(complaint: dict, profile: dict) -> bool:
+    """Student: only own; Staff: assigned or same department; Admin: all."""
+    if profile["role"] == "ADMIN":
+        return True
+    if profile["role"] == "STAFF":
+        return (
+            complaint.get("assigned_to") == profile["id"]
+            or complaint.get("department_id") == profile.get("department_id")
+        )
+    if profile["role"] == "STUDENT":
+        return complaint.get("submitted_by") == profile["id"]
+    return False
+
+
+# ── GET /complaints/{id}/remarks ──────────────────────────────────────────────
+@router.get("/{complaint_id}/remarks", summary="List remarks (thread) for a complaint")
+async def list_complaint_remarks(
+    complaint_id: str,
+    profile: dict = Depends(get_current_user_profile),
+):
+    complaint_res = supabase_admin.table("complaints").select("submitted_by, assigned_to, department_id").eq("id", complaint_id).single().execute()
+    if not complaint_res.data:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    if not _can_access_complaint(complaint_res.data, profile):
+        raise HTTPException(status_code=403, detail="Access denied")
+    response = supabase_admin.table("complaint_remarks").select(
+        "id, complaint_id, author_id, content, created_at, users!author_id(full_name, first_name, last_name, role)"
+    ).eq("complaint_id", complaint_id).order("created_at", desc=False).execute()
+    return {"data": response.data or []}
+
+
+# ── POST /complaints/{id}/remarks ─────────────────────────────────────────────
+class CreateRemarkPayload(BaseModel):
+    content: str
+
+
+@router.post("/{complaint_id}/remarks", summary="Post a remark on a complaint", status_code=201)
+async def create_complaint_remark(
+    complaint_id: str,
+    payload: CreateRemarkPayload,
+    profile: dict = Depends(get_current_user_profile),
+):
+    content = (payload.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Content is required")
+    complaint_res = supabase_admin.table("complaints").select("submitted_by, assigned_to, department_id").eq("id", complaint_id).single().execute()
+    if not complaint_res.data:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    if not _can_access_complaint(complaint_res.data, profile):
+        raise HTTPException(status_code=403, detail="Access denied")
+    row = {
+        "complaint_id": complaint_id,
+        "author_id": profile["id"],
+        "content": content,
+    }
+    response = supabase_admin.table("complaint_remarks").insert(row).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create remark")
+    created = response.data[0]
+    # Attach author info for consistent response shape with list endpoint
+    first = (profile.get("first_name") or "").strip()
+    last = (profile.get("last_name") or "").strip()
+    full_name = f"{first} {last}".strip() or profile.get("full_name") or "Unknown"
+    author = {
+        "full_name": full_name,
+        "first_name": profile.get("first_name"),
+        "last_name": profile.get("last_name"),
+        "role": profile.get("role"),
+    }
+    return {**created, "users": author}
+
+
 # ── GET /complaints/{id} ───────────────────────────────────────────────────────
 @router.get("/{complaint_id}", summary="Get a single complaint")
 async def get_complaint(
