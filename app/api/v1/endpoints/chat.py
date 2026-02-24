@@ -46,18 +46,24 @@ When communicating, remember you are speaking to an authenticated ASTU student. 
 
 # Fallback FAQ-style answers with more detail
 FALLBACK_ANSWERS = [
-    ("how do i submit", "Go to **Submit New Complaint** from the sidebar. Enter a title, choose a category (e.g., Facility & Maintenance, IT & Network), add a description, and you can attach up to 5 files or images. Click Submit when done."),
-    ("how do i track", "Visit **My Complaints** from the sidebar to see your tickets. Statuses include: **Open** (new), **In Progress** (active), and **Resolved** (fixed). Click any ticket to see details or chat with staff."),
-    ("forgot password", "On the login page, click **Forgot Password** and enter your ASTU email. You will receive a reset link. Check your spam folder if you don't see it within 5 minutes."),
-    ("categories", "Categories include: Facility & Maintenance, Academic Affairs, IT & Network, Student Services, Library, and Financial. Choose the one that best fits your issue."),
+    ("submit", "Go to **Submit New Complaint** from the sidebar. Enter a title, choose a category (e.g., Facility & Maintenance, IT & Network), add a description, and you can attach up to 5 files or images. Click Submit when done."),
+    ("track", "Visit **My Complaints** from the sidebar to see your tickets. Statuses include: **Open** (new), **In Progress** (active), and **Resolved** (fixed). Click any ticket to see details or chat with staff."),
+    ("how", "I can help with submitting tickets, tracking status, or campus info. Try asking: 'How do I submit a ticket?' or 'How do I track my status?'"),
+    ("forgot", "On the login page, click **Forgot Password** and enter your ASTU email. You will receive a reset link within 5 minutes."),
+    ("password", "On the login page, click **Forgot Password** and enter your ASTU email. You will receive a reset link within 5 minutes."),
+    ("category", "Categories include: Facility & Maintenance, Academic Affairs, IT & Network, Student Services, Library, and Financial. Choose the one that best fits your issue."),
     ("attachment", "You can add up to 5 attachments (images/docs) when submitting a complaint using the upload area on the form."),
+    ("file", "You can add up to 5 attachments (images/docs) when submitting a complaint using the upload area on the form."),
     ("status", "Tickets progress from **Open** → **In Progress** → **Resolved**. You can check this anytime in the 'My Complaints' section."),
-    ("dormitory", "For maintenance or dorm issues, use the **Facility & Maintenance** category. For emergencies, call the facilities hotline at **9812**."),
+    ("dorm", "For maintenance or dorm issues, use the **Facility & Maintenance** category. For emergencies, call the facilities hotline at **9812**."),
+    ("maintenance", "For maintenance or dorm issues, use the **Facility & Maintenance** category. For emergencies, call the facilities hotline at **9812**."),
     ("transcript", "Official transcripts are requested through the registrar's office portal or in person. It typically takes **3–5 business days**."),
     ("registration", "Course registration normally opens two weeks before the semester. The add/drop period is the first two weeks of classes. Check the academic calendar for specific dates."),
     ("security", "For urgent security matters or emergencies, please contact the campus security hotline at **9811**."),
+    ("emergency", "For urgent security matters or emergencies, please contact the campus security hotline at **9811** (Security) or **9812** (Facilities)."),
     ("library", "Under the **Library** category, you can report issues with borrowing, digital resources, or study spaces."),
     ("financial", "For tuition, scholarships, or clearance questions, use the **Financial** category."),
+    ("fee", "For tuition, scholarships, or clearance questions, use the **Financial** category."),
 ]
 
 
@@ -77,15 +83,33 @@ class ChatResponse(BaseModel):
 
 
 def _fallback_reply(user_message: str) -> str:
-    """Simple keyword matching over FAQ for when OpenRouter is not available."""
-    lower = user_message.lower().strip()
-    for keyword_phrase, answer in FALLBACK_ANSWERS:
-        if keyword_phrase in lower:
+    """Robust keyword matching for when the AI is unavailable."""
+    msg = user_message.lower().strip()
+    
+    # Define trigger-to-answer mapping
+    # Multiple keywords can map to the same answer
+    triger_map = {
+        ("submit", "file", "create"): "Go to **Submit New Complaint** from the sidebar. Enter a title, choose a category, add a description, and you can attach up to 5 files. Click Submit when done.",
+        ("track", "check", "status", "progress"): "Visit **My Complaints** from the sidebar to see your tickets. Statuses include: **Open** (new), **In Progress** (active), and **Resolved** (fixed).",
+        ("password", "login", "forgot", "access"): "On the login page, click **Forgot Password** and enter your ASTU email. You will receive a reset link within 5 minutes.",
+        ("category", "categories", "types"): "Categories include: Facility & Maintenance, Academic Affairs, IT & Network, Student Services, Library, and Financial. Choose the one that best fits your issue.",
+        ("attachment", "image", "doc", "pdf"): "You can add up to 5 attachments (images/docs) when submitting a complaint using the upload area on the form.",
+        ("dorm", "maintenance", "cafeteria", "facilities", "water", "electricity"): "For maintenance or dorm issues, use the **Facility & Maintenance** category. For emergencies, call the facilities hotline at **9812**.",
+        ("transcript", "registrar", "grade"): "Official transcripts are requested through the registrar's office portal or in person. It typically takes **3–5 business days**.",
+        ("registration", "add", "drop", "course"): "Course registration normally opens two weeks before the semester. The add/drop period is the first two weeks of classes.",
+        ("security", "emergency", "help"): "For urgent security matters or emergencies, please contact the campus security hotline at **9811** (Security) or **9812** (Facilities).",
+        ("library", "book", "borrow"): "Under the **Library** category, you can report issues with borrowing, digital resources, or study spaces.",
+        ("financial", "fee", "tuition", "payment", "clearance"): "For tuition, scholarships, or clearance questions, use the **Financial** category.",
+    }
+
+    for keywords, answer in triger_map.items():
+        if any(kw in msg for kw in keywords):
             return answer
+
     return (
         "I can help with questions about submitting and tracking complaints at ASTU. "
-        "Try asking: how to submit a complaint, how to track my status, or about categories and attachments. "
-        "You can also open **Knowledge Base** from the sidebar for more guides and FAQs."
+        "Try asking: 'How do I submit a ticket?', 'How to track status?', or about categories like Library/Financial. "
+        "You can also check the **Knowledge Base** in the sidebar for detailed guides."
     )
 
 
@@ -123,7 +147,7 @@ async def chat(
                     f"{OPENROUTER_BASE_URL}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
-                        "HTTP-Referer": "https://astu-smart-complaint-issue-tracking.netlify.app",
+                        "HTTP-Referer": settings.FRONTEND_URL,
                         "X-Title": "ASTU Smart Complaint & Issue Tracking",
                         "Content-Type": "application/json",
                     },
@@ -145,6 +169,8 @@ async def chat(
             # If API fails or returns error, use fallback
             print(f"OpenRouter Request Failed: Status {response.status_code}, Body: {response.text}")
             reply = _fallback_reply(message)
+            if response.status_code != 200:
+                 reply = f"*(AI API Error {response.status_code})* " + reply
             return ChatResponse(reply=reply, source="fallback")
         except Exception as e:
             import traceback
