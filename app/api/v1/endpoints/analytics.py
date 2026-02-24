@@ -132,10 +132,10 @@ async def get_department_summary(profile: dict = Depends(require_staff_or_admin)
         .execute()
     pending_dept_tasks = pending_res.count or 0
 
-    # 3. Average Response Time (for the department, in hours)
+    # 3. Average Response Time & Satisfaction Rate
     # Estimate based on created_at vs resolved_at for recent tickets
-    resolution_time_res = supabase_admin.table("complaints")\
-        .select("created_at, resolved_at")\
+    recent_resolved_res = supabase_admin.table("complaints")\
+        .select("created_at, resolved_at, satisfaction_rating")\
         .eq("department_id", department_id)\
         .is_("deleted_at", "null")\
         .not_.is_("resolved_at", "null")\
@@ -143,14 +143,27 @@ async def get_department_summary(profile: dict = Depends(require_staff_or_admin)
         .limit(50)\
         .execute()
     
+    
     avg_hrs = 0
-    if resolution_time_res.data:
+    avg_satisfaction = 0.0
+    
+    if recent_resolved_res.data:
         total_hrs = 0
-        for c in resolution_time_res.data:
+        total_rating = 0
+        rating_count = 0
+        
+        for c in recent_resolved_res.data:
             created = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))
             resolved = datetime.fromisoformat(c["resolved_at"].replace("Z", "+00:00"))
             total_hrs += (resolved - created).total_seconds() / 3600
-        avg_hrs = round(total_hrs / len(resolution_time_res.data), 1)
+            
+            if c.get("satisfaction_rating"):
+                total_rating += c["satisfaction_rating"]
+                rating_count += 1
+                
+        avg_hrs = round(total_hrs / len(recent_resolved_res.data), 1)
+        if rating_count > 0:
+            avg_satisfaction = round(total_rating / rating_count, 1)
 
     # 4. Resolved this week (for the department)
     one_week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
@@ -166,7 +179,8 @@ async def get_department_summary(profile: dict = Depends(require_staff_or_admin)
         "assigned_tickets": assigned_tickets,
         "pending_dept_tasks": pending_dept_tasks,
         "avg_response_time": f"{avg_hrs} hrs",
-        "resolved_this_week": resolved_this_week
+        "resolved_this_week": resolved_this_week,
+        "avg_satisfaction_rating": avg_satisfaction
     }
 
 @router.get("/department/trends", summary="Get department ticket volume trends (last 7 days)")
