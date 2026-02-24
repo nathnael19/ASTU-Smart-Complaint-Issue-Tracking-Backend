@@ -14,31 +14,50 @@ router = APIRouter()
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-SYSTEM_PROMPT = """You are a helpful assistant for Adama Science and Technology University (ASTU) students. Your role is to help students with:
+SYSTEM_PROMPT = """You are a highly intelligent and friendly AI assistant for Adama Science and Technology University (ASTU) students. Your primary mission is to provide accurate, helpful, and empathetic guidance.
 
-- Submitting complaints: how to file a complaint, what information to include, categories (Facility & Maintenance, Academic Affairs, IT & Network, Student Services, Library, Financial), and attaching files.
-- Tracking complaints: how to check status (Open, In Progress, Resolved), view history, and expected updates.
-- General campus issues: dormitory maintenance, lab equipment, internet, library (borrowing, digital resources), and financial (fees, clearing).
-- Password reset: Use "Forgot Password" on the login page; check email for the reset link.
-- Course registration: Typically opens two weeks before the semester; add/drop in the first two weeks.
-- Transcripts: Request via registrar's office portal or in person; takes 3–5 business days.
-- Dormitory maintenance: Submit under Facilities; for emergencies contact campus hotline at 9812.
-- Library Services: Borrowing books, digital resource access, and study space booking.
-- Financial Affairs: Tuition payments, scholarship status, and financial clearance procedures.
+### Your Knowledge Areas:
+1.  **Complaint Submission**: Explain how to use the "Submit New Complaint" form. Essential categories:
+    *   **Facility & Maintenance**: For dorm issues, cafeteria, or campus safety.
+    *   **Academic Affairs**: Grading, course issues, or registration.
+    *   **IT & Network**: Internet access, portal logins, and labs.
+    *   **Student Services**: Services related to student life.
+    *   **Library**: Borrowing, resources, and study spaces.
+    *   **Financial**: Fees, payments, and clearance.
+2.  **Complaint Tracking**: Explain statuses:
+    *   **Open**: New ticket, awaiting staff review.
+    *   **In Progress**: A staff member is actively working on it.
+    *   **Resolved**: Issue is fixed! Resolving sets a timestamp and notifies the student.
+    *   **Closed**: Finalized ticket.
+3.  **Emergency Contacts**: 
+    *   Campus Security: **9811**
+    *   Facilities Hotline: **9812**
+4.  **Academic Calendar**: Registration typically starts 2 weeks before the semester; add/drop is the first 2 weeks.
+5.  **Transcripts**: Request at Registrar's Office; takes 3-5 business days.
 
-Be concise, friendly, and accurate. If unsure, suggest checking the Knowledge Base or contacting the relevant office."""
+### Your Persona:
+- Be concise but thorough.
+- Use a friendly tone.
+- If you don't know an answer, suggest checking the **Knowledge Base** in the sidebar.
+- **You are NOT authorized to change data**, only to guide.
 
-# Fallback FAQ-style answers when OpenRouter is not configured
+### User Context:
+When communicating, remember you are speaking to an authenticated ASTU student. Use their name and ID if provided in the context preamble."""
+
+# Fallback FAQ-style answers with more detail
 FALLBACK_ANSWERS = [
-    ("how do i submit", "Go to Submit New Complaint from the sidebar. Enter a title, choose a category (e.g. Facility & Maintenance, IT & Network), add a description, and you can attach files or images. Click Submit when done."),
-    ("how do i track", "Open My Complaints from the sidebar to see all your complaints and their status: Open, In Progress, or Resolved. Click a complaint to see full details and any staff notes."),
-    ("forgot password", "On the login page, click Forgot Password and enter your ASTU email. You will receive a reset link by email. Check spam if you don't see it."),
-    ("categories", "Complaint categories include: Facility & Maintenance, Academic Affairs, IT & Network, Student Services, Library, and Financial. Choose the one that best fits your issue."),
-    ("attachment", "When submitting a complaint you can attach files or images. Use the upload area on the form; you can add up to 5 files."),
-    ("status", "Complaints can be Open (new), In Progress (being worked on), or Resolved. You can see the status in My Complaints and on the complaint detail page."),
-    ("dormitory", "For dormitory or maintenance issues, submit a complaint under the Facility & Maintenance category. For emergencies, contact the campus facilities hotline at 9812."),
-    ("transcript", "You can request an official transcript through the registrar's office portal or in person. Processing usually takes 3–5 business days."),
-    ("registration", "Course registration typically opens two weeks before the start of each semester. The add/drop period is the first two weeks of classes. Check the academic calendar for exact dates."),
+    ("how do i submit", "Go to **Submit New Complaint** from the sidebar. Enter a title, choose a category (e.g., Facility & Maintenance, IT & Network), add a description, and you can attach up to 5 files or images. Click Submit when done."),
+    ("how do i track", "Visit **My Complaints** from the sidebar to see your tickets. Statuses include: **Open** (new), **In Progress** (active), and **Resolved** (fixed). Click any ticket to see details or chat with staff."),
+    ("forgot password", "On the login page, click **Forgot Password** and enter your ASTU email. You will receive a reset link. Check your spam folder if you don't see it within 5 minutes."),
+    ("categories", "Categories include: Facility & Maintenance, Academic Affairs, IT & Network, Student Services, Library, and Financial. Choose the one that best fits your issue."),
+    ("attachment", "You can add up to 5 attachments (images/docs) when submitting a complaint using the upload area on the form."),
+    ("status", "Tickets progress from **Open** → **In Progress** → **Resolved**. You can check this anytime in the 'My Complaints' section."),
+    ("dormitory", "For maintenance or dorm issues, use the **Facility & Maintenance** category. For emergencies, call the facilities hotline at **9812**."),
+    ("transcript", "Official transcripts are requested through the registrar's office portal or in person. It typically takes **3–5 business days**."),
+    ("registration", "Course registration normally opens two weeks before the semester. The add/drop period is the first two weeks of classes. Check the academic calendar for specific dates."),
+    ("security", "For urgent security matters or emergencies, please contact the campus security hotline at **9811**."),
+    ("library", "Under the **Library** category, you can report issues with borrowing, digital resources, or study spaces."),
+    ("financial", "For tuition, scholarships, or clearance questions, use the **Financial** category."),
 ]
 
 
@@ -83,9 +102,16 @@ async def chat(
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
 
+    # Injected Context for Personalization
+    full_name = profile.get("full_name") or f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip() or "Student"
+    id_num = profile.get("student_id_number") or profile.get("id") or "N/A"
+    context_preamble = f"[Context: You are currently assisting {full_name} (ID: {id_num}). Acknowledge them if helpful, but prioritize their question.]"
+
     if settings.OPENROUTER_API_KEY:
         try:
             messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages.append({"role": "system", "content": context_preamble})
+            
             if payload.history:
                 for m in payload.history[-10:]:
                     if m.role in ("user", "assistant") and m.content:
