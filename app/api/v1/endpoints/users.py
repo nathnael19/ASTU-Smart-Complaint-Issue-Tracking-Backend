@@ -25,15 +25,30 @@ async def list_users(
     offset: int = Query(0),
     _admin: dict = Depends(require_admin),
 ):
-    query = supabase_admin.table("users").select("*").is_("deleted_at", "null")
+    query = supabase_admin.table("users").select("*", count="exact").is_("deleted_at", "null")
     if role:
         query = query.eq("role", role)
     if status:
         query = query.eq("status", status)
     if department_id:
         query = query.eq("department_id", department_id)
+        
     response = query.range(offset, offset + limit - 1).execute()
-    return {"data": response.data, "total": len(response.data)}
+    users = response.data
+    total_count = response.count if hasattr(response, 'count') else len(users)
+
+    # Pre-fetch counts for students and staff
+    for user in users:
+        if user.get("role") == "STUDENT":
+            # fetch total complaints
+            count_res = supabase_admin.table("complaints").select("id", count="exact").eq("submitted_by", user["id"]).execute()
+            user["total_complaints"] = count_res.count if hasattr(count_res, 'count') else 0
+        elif user.get("role") == "STAFF":
+            # fetch total resolved complaints assigned to this staff
+            count_res = supabase_admin.table("complaints").select("id", count="exact").eq("assigned_to", user["id"]).eq("status", "RESOLVED").execute()
+            user["total_resolved_complaints"] = count_res.count if hasattr(count_res, 'count') else 0
+
+    return {"data": users, "total": total_count}
 
 
 # ── GET /users/{user_id} ───────────────────────────────────────────────────────

@@ -35,3 +35,4 @@ htmlcov/
 *.log
 .env.example
 .env
+backdate_git.py
