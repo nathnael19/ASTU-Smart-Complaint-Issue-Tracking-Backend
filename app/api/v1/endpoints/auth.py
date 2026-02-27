@@ -26,8 +26,9 @@ async def register(payload: SignUpRequest):
     """Register via Supabase Auth and create a profile in the users table."""
     try:
         # 1. Sign up with Supabase Auth
+        print(f"DEBUG: Registering user with email: {payload.email}")
         auth_response = supabase_client.auth.sign_up(
-            {"email": payload.email, "password": payload.password}
+            credentials={"email": payload.email, "password": payload.password}
         )
         
         if not auth_response.user:
@@ -83,14 +84,22 @@ async def login(payload: LoginRequest):
             {"email": payload.email, "password": payload.password}
         )
         session = response.session
+        user = response.user
+
+        # Fetch additional profile info (like role) from our users table
+        profile_res = supabase_admin.table("users").select("*").eq("id", user.id).single().execute()
+        profile = profile_res.data
+
         return {
             "access_token": session.access_token,
             "refresh_token": session.refresh_token,
             "token_type": "bearer",
             "expires_in": session.expires_in,
             "user": {
-                "id": response.user.id,
-                "email": response.user.email,
+                "id": user.id,
+                "email": user.email,
+                "role": profile.get("role") if profile else "STUDENT",
+                "full_name": profile.get("full_name") if profile else "",
             },
         }
     except Exception as e:
