@@ -26,9 +26,10 @@ async def register(payload: SignUpRequest):
     """Register via Supabase Auth and create a profile in the users table."""
     try:
         # 1. Sign up with Supabase Auth
-        print(f"DEBUG: Registering user with email: {payload.email}")
+        clean_email = payload.email.strip().lower()
+        print(f"DEBUG: Registering user with email: '{clean_email}'")
         auth_response = supabase_client.auth.sign_up(
-            credentials={"email": payload.email, "password": payload.password}
+            {"email": clean_email, "password": payload.password}
         )
         
         if not auth_response.user:
@@ -54,10 +55,9 @@ async def register(payload: SignUpRequest):
         # 4. Create User Profile
         user_data = {
             "id": user_id,
-            "email": payload.email,
+            "email": clean_email,
             "first_name": first_name,
             "last_name": last_name,
-            "full_name": payload.full_name,
             "role": payload.role,
             "department_id": department_id,
             "status": "Active"
