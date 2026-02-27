@@ -133,6 +133,7 @@ class PasswordUpdate(BaseModel):
 class VerifyOTPRequest(BaseModel):
     email: EmailStr
     token: str
+    type: str = "recovery"  # signup, recovery, etc.
 
 
 @router.post("/forgot-password", summary="Request a password reset email")
@@ -160,14 +161,14 @@ async def forgot_password(payload: PasswordResetRequest):
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-@router.post("/verify-otp", summary="Verify password reset OTP")
+@router.post("/verify-otp", summary="Verify email OTP")
 async def verify_otp(payload: VerifyOTPRequest):
-    """Verify the 6-digit recovery code from Supabase."""
+    """Verify the 6-digit code (signup or recovery) from Supabase."""
     try:
         response = supabase_client.auth.verify_otp({
             "email": payload.email,
             "token": payload.token,
-            "type": "recovery"
+            "type": payload.type
         })
         session = response.session
         if not session:
