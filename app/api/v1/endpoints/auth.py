@@ -1,7 +1,9 @@
+from typing import Optional
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr
 
 from app.core.supabase import supabase_client, supabase_admin
+from app.models.enums import UserRole
 
 router = APIRouter()
 
@@ -14,8 +16,63 @@ class LoginRequest(BaseModel):
 class SignUpRequest(BaseModel):
     email: EmailStr
     password: str
-    first_name: str
-    last_name: str
+    full_name: str
+    role: UserRole = UserRole.STUDENT
+    department_name: Optional[str] = None
+
+
+@router.post("/register", summary="Register a new user")
+async def register(payload: SignUpRequest):
+    """Register via Supabase Auth and create a profile in the users table."""
+    try:
+        # 1. Sign up with Supabase Auth
+        auth_response = supabase_client.auth.sign_up(
+            {"email": payload.email, "password": payload.password}
+        )
+        
+        if not auth_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Registration failed"
+            )
+
+        user_id = auth_response.user.id
+        
+        # 2. Handle Name Splitting
+        name_parts = payload.full_name.strip().split(" ", 1)
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        # 3. Resolve Department ID if provided
+        department_id = None
+        if payload.department_name:
+            dep_res = supabase_client.table("departments").select("id").eq("name", payload.department_name).execute()
+            if dep_res.data:
+                department_id = dep_res.data[0]["id"]
+
+        # 4. Create User Profile
+        user_data = {
+            "id": user_id,
+            "email": payload.email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "full_name": payload.full_name,
+            "role": payload.role,
+            "department_id": department_id,
+            "status": "Active"
+        }
+        
+        supabase_admin.table("users").insert(user_data).execute()
+
+        return {"message": "Registration successful. Please check your email for verification.", "user_id": user_id}
+
+    except Exception as e:
+        # If user registration succeeded but profile creation failed, we might want to handle that,
+        # but for now, we'll just return the error.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
 
 
 @router.post("/login", summary="Sign in with email and password")

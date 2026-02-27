@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends
-from app.core.supabase import supabase_admin
+from app.core.supabase import supabase_client, supabase_admin
 from app.dependencies import get_current_user_profile, require_admin
 
 router = APIRouter()
 
 
 @router.get("/", summary="List all departments")
-async def list_departments(_=Depends(get_current_user_profile)):
-    response = supabase_admin.table("departments").select("*").order("name").execute()
+async def list_departments():
+    response = supabase_client.table("departments").select("*").order("name").execute()
     return response.data
 
 
