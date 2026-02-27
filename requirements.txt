@@ -1,0 +1,24 @@
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+
+# Supabase integration
+supabase>=2.9.0
+
+# Settings / environment management
+pydantic-settings>=2.4.0
+pydantic[email]>=2.8.0
+python-dotenv>=1.0.0
+
+# Authentication / security
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# HTTP client (used by supabase-py internally)
+httpx>=0.27.0
+
+# CORS & middleware
+python-multipart>=0.0.9
+
+# Datetime utilities
+python-dateutil>=2.9.0
