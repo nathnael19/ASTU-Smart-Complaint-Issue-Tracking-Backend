@@ -122,6 +122,42 @@ async def logout(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordUpdate(BaseModel):
+    password: str
+
+
+@router.post("/forgot-password", summary="Request a password reset email")
+async def forgot_password(payload: PasswordResetRequest):
+    """Trigger a password reset email from Supabase."""
+    try:
+        supabase_client.auth.reset_password_for_email(
+            payload.email,
+            {"redirect_to": "http://localhost:5173/new-password"}
+        )
+        return {"message": "If an account exists for this email, a reset link has been sent."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/reset-password", summary="Update user password")
+async def reset_password(payload: PasswordUpdate, current_user: dict = Depends(get_current_user)):
+    """Update the authenticated user's password."""
+    try:
+        user_id = current_user.get("sub")
+        # Use admin client to update the user's password directly
+        supabase_admin.auth.admin.update_user_by_id(
+            user_id,
+            {"password": payload.password}
+        )
+        return {"message": "Password updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @router.post("/refresh", summary="Refresh access token")
 async def refresh_token(refresh_token: str):
     """Exchange a refresh token for a new access token."""
