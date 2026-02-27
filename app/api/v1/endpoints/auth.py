@@ -1,9 +1,10 @@
 from typing import Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, EmailStr
 
 from app.core.supabase import supabase_client, supabase_admin
 from app.models.enums import UserRole
+from app.dependencies import get_current_user
 
 router = APIRouter()
 
@@ -109,12 +110,14 @@ async def login(payload: LoginRequest):
         ) from e
 
 
-@router.post("/logout", summary="Sign out (invalidate session)")
-async def logout(refresh_token: str):
-    """Sign out and revoke the refresh token on Supabase."""
+@router.post("/logout", summary="Sign out (invalidate session globally)")
+async def logout(current_user: dict = Depends(get_current_user)):
+    """Sign out the user and revoke all their sessions on Supabase."""
     try:
-        supabase_client.auth.sign_out()
-        return {"message": "Logged out successfully"}
+        user_id = current_user.get("sub")
+        # In Supabase auth, admin.sign_out(user_id) signs out the user across all devices/sessions
+        supabase_admin.auth.admin.sign_out(user_id)
+        return {"message": "Logged out successfully from all devices"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
