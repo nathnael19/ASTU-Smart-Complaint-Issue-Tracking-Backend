@@ -130,6 +130,11 @@ class PasswordUpdate(BaseModel):
     password: str
 
 
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    token: str
+
+
 @router.post("/forgot-password", summary="Request a password reset email")
 async def forgot_password(payload: PasswordResetRequest):
     """Trigger a password reset email from Supabase."""
@@ -139,6 +144,29 @@ async def forgot_password(payload: PasswordResetRequest):
             {"redirect_to": "http://localhost:5173/new-password"}
         )
         return {"message": "If an account exists for this email, a reset link has been sent."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/verify-otp", summary="Verify password reset OTP")
+async def verify_otp(payload: VerifyOTPRequest):
+    """Verify the 6-digit recovery code from Supabase."""
+    try:
+        response = supabase_client.auth.verify_otp({
+            "email": payload.email,
+            "token": payload.token,
+            "type": "recovery"
+        })
+        session = response.session
+        if not session:
+            raise HTTPException(status_code=400, detail="Invalid or expired code")
+            
+        return {
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token,
+            "token_type": "bearer",
+            "user": response.user
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
