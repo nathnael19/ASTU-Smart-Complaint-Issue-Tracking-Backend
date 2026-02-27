@@ -137,13 +137,25 @@ class VerifyOTPRequest(BaseModel):
 
 @router.post("/forgot-password", summary="Request a password reset email")
 async def forgot_password(payload: PasswordResetRequest):
-    """Trigger a password reset email from Supabase."""
+    """Trigger a password reset email from Supabase after verifying the user exists."""
     try:
+        # Check if the user exists in our database first
+        clean_email = payload.email.strip().lower()
+        res = supabase_admin.table("users").select("id").eq("email", clean_email).execute()
+        
+        if not res.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No account found with this email address."
+            )
+
         supabase_client.auth.reset_password_for_email(
-            payload.email,
+            clean_email,
             {"redirect_to": "http://localhost:5173/new-password"}
         )
-        return {"message": "If an account exists for this email, a reset link has been sent."}
+        return {"message": "Verification code has been sent to your email."}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

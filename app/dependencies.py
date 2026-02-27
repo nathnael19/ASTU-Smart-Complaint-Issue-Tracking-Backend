@@ -13,7 +13,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 
 from app.core.config import settings
-from app.core.supabase import supabase_admin
+from app.core.supabase import supabase_client, supabase_admin
 
 security = HTTPBearer()
 
@@ -22,8 +22,8 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
     """
-    Decode the Supabase JWT from the Authorization header.
-    Returns the decoded payload (which includes `sub` = user UUID, `role`, etc.)
+    Verify the Supabase JWT from the Authorization header using the Supabase client.
+    Returns the user data for downstream dependencies.
     """
     token = credentials.credentials
     credentials_exception = HTTPException(
@@ -32,17 +32,25 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET,
-            algorithms=[settings.JWT_ALGORITHM],
-            options={"verify_aud": False},
-        )
-        user_id: str = payload.get("sub")
-        if user_id is None:
+        # Verify the token with Supabase - this is more robust than manual JWT decoding
+        # as it doesn't require the JWT secret to be manually configured/matched.
+        response = supabase_client.auth.get_user(token)
+        user = response.user
+        
+        if not user:
             raise credentials_exception
-        return payload
-    except JWTError:
+            
+        # Return a structure that matches what current code expects (JWT-like payload)
+        return {
+            "sub": user.id,
+            "id": user.id,
+            "email": user.email,
+            "app_metadata": user.app_metadata,
+            "user_metadata": user.user_metadata,
+            "aud": user.aud
+        }
+    except Exception as e:
+        print(f"DEBUG: Auth verification failed: {str(e)}")
         raise credentials_exception
 
 
