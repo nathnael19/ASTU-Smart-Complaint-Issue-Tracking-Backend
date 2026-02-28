@@ -40,5 +40,9 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
+    # AI Chatbot via OpenRouter (free tier). Get key at https://openrouter.ai/keys
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_MODEL: str = "google/gemma-2-9b-it:free"  # or e.g. meta-llama/llama-3.2-3b-instruct:free
+
 
 settings = Settings()
