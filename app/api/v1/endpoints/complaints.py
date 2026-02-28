@@ -17,12 +17,16 @@ async def list_complaints(
     department_id: Optional[str] = Query(None),
     assigned_to: Optional[str] = Query(None),
     submitted_by: Optional[str] = Query(None),
-    limit: int = Query(50, le=200),
+    search: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    limit: int = Query(10, le=100),
     offset: int = Query(0),
     profile: dict = Depends(get_current_user_profile),
 ):
     query = supabase_admin.table("complaints").select(
-        "*, users!submitted_by(full_name, email, role), departments(name)"
+        "*, users!submitted_by(full_name, email, role), departments(name)",
+        count="exact"
     ).is_("deleted_at", "null")
 
     # Role-based filtering
@@ -43,9 +47,18 @@ async def list_complaints(
         query = query.eq("assigned_to", assigned_to)
     if submitted_by and profile["role"] in ("STAFF", "ADMIN"):
         query = query.eq("submitted_by", submitted_by)
+    
+    if search:
+        query = query.or_(f"title.ilike.%{search}%,ticket_number.ilike.%{search}%")
+    
+    if start_date:
+        query = query.gte("created_at", start_date)
+    if end_date:
+        # Append end of day to include the entire end_date
+        query = query.lte("created_at", f"{end_date}T23:59:59")
 
     response = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-    return {"data": response.data, "total": len(response.data)}
+    return {"data": response.data, "total": response.count}
 
 
 # ── GET /complaints/{id} ───────────────────────────────────────────────────────
