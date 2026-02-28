@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends
 from typing import List, Dict, Any
 from datetime import datetime, timedelta, timezone
 from app.core.supabase import supabase_admin
-from app.dependencies import require_admin
 from app.models.enums import ComplaintStatus
+from app.dependencies import require_admin, require_staff_or_admin, get_current_user_profile
 
 router = APIRouter()
 
@@ -97,5 +97,110 @@ async def get_trend_stats(_admin: dict = Depends(require_admin)):
     for i in range(5, -1, -1):
         m = (datetime.now(timezone.utc) - timedelta(days=i*30)).strftime("%b").upper()
         result.append({"month": m, "count": trends.get(m, 0)})
+        
+    return result
+
+@router.get("/department/summary", summary="Get department summary statistics")
+async def get_department_summary(profile: dict = Depends(require_staff_or_admin)):
+    """
+    Returns high-level stats for the staff dashboard based on department.
+    """
+    department_id = profile.get("department_id")
+    user_id = profile.get("id")
+
+    if not department_id and profile.get("role") != "ADMIN":
+        return {
+            "assigned_tickets": 0,
+            "pending_dept_tasks": 0,
+            "avg_response_time": "0 hrs",
+            "resolved_this_week": 0
+        }
+
+    # 1. Assigned Tickets (to the specific user)
+    assigned_res = supabase_admin.table("complaints").select("id", count="exact")\
+        .eq("assigned_to", user_id)\
+        .is_("deleted_at", "null")\
+        .in_("status", [ComplaintStatus.OPEN.value, ComplaintStatus.IN_PROGRESS.value])\
+        .execute()
+    assigned_tickets = assigned_res.count or 0
+
+    # 2. Pending Dept Tasks (for the whole department)
+    pending_res = supabase_admin.table("complaints").select("id", count="exact")\
+        .eq("department_id", department_id)\
+        .is_("deleted_at", "null")\
+        .in_("status", [ComplaintStatus.OPEN.value, ComplaintStatus.IN_PROGRESS.value])\
+        .execute()
+    pending_dept_tasks = pending_res.count or 0
+
+    # 3. Average Response Time (for the department, in hours)
+    # Estimate based on created_at vs resolved_at for recent tickets
+    resolution_time_res = supabase_admin.table("complaints")\
+        .select("created_at, resolved_at")\
+        .eq("department_id", department_id)\
+        .is_("deleted_at", "null")\
+        .not_.is_("resolved_at", "null")\
+        .order("resolved_at", desc=True)\
+        .limit(50)\
+        .execute()
+    
+    avg_hrs = 0
+    if resolution_time_res.data:
+        total_hrs = 0
+        for c in resolution_time_res.data:
+            created = datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))
+            resolved = datetime.fromisoformat(c["resolved_at"].replace("Z", "+00:00"))
+            total_hrs += (resolved - created).total_seconds() / 3600
+        avg_hrs = round(total_hrs / len(resolution_time_res.data), 1)
+
+    # 4. Resolved this week (for the department)
+    one_week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    resolved_week_res = supabase_admin.table("complaints").select("id", count="exact")\
+        .eq("department_id", department_id)\
+        .is_("deleted_at", "null")\
+        .in_("status", [ComplaintStatus.RESOLVED.value, ComplaintStatus.CLOSED.value])\
+        .gte("resolved_at", one_week_ago)\
+        .execute()
+    resolved_this_week = resolved_week_res.count or 0
+
+    return {
+        "assigned_tickets": assigned_tickets,
+        "pending_dept_tasks": pending_dept_tasks,
+        "avg_response_time": f"{avg_hrs} hrs",
+        "resolved_this_week": resolved_this_week
+    }
+
+@router.get("/department/trends", summary="Get department ticket volume trends (last 7 days)")
+async def get_department_trends(profile: dict = Depends(require_staff_or_admin)):
+    """
+    Returns daily ticket counts for the last 7 days for the staff's department.
+    """
+    department_id = profile.get("department_id")
+    
+    if not department_id and profile.get("role") != "ADMIN":
+        return []
+
+    # Fetch created_at for department complaints in the last 7 days
+    seven_days_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    res = supabase_admin.table("complaints").select("created_at")\
+        .eq("department_id", department_id)\
+        .is_("deleted_at", "null")\
+        .gte("created_at", seven_days_ago)\
+        .execute()
+    
+    # Group by Day
+    trends: Dict[str, int] = {}
+    for item in res.data:
+        dt = datetime.fromisoformat(item["created_at"].replace("Z", "+00:00"))
+        day_key = dt.strftime("%A")[:3].upper() # "MON", "TUE", etc.
+        trends[day_key] = trends.get(day_key, 0) + 1
+    
+    # Ensure all last 7 days are represented in order
+    result = []
+    # Start from 6 days ago up to today
+    for i in range(6, -1, -1):
+        d = (datetime.now(timezone.utc) - timedelta(days=i)).strftime("%A")[:3].upper()
+        # Find if we already added it (in case of duplicate day names over week boundary)
+        # We can just append and it represents the sequence
+        result.append({"day": d, "value": trends.get(d, 0)})
         
     return result

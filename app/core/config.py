@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DEBUG: bool = True
     API_V1_PREFIX: str = "/api/v1"
+    # Frontend base URL (for password reset and invite redirects). No trailing slash.
+    FRONTEND_URL: str = "http://localhost:5173"
 
     # CORS – stored as a comma-separated string in .env, parsed into a list
     CORS_ORIGINS: Union[List[str], str] = ["http://localhost:5173", "http://localhost:3000"]

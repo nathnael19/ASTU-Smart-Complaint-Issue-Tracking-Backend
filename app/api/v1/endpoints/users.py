@@ -2,6 +2,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.core.supabase import supabase_admin
 from app.models.enums import UserRole
 from app.dependencies import get_current_user_profile, require_admin, require_staff_or_admin
@@ -102,9 +103,15 @@ async def admin_create_user(
     """Admin-only: Invite a new user via Supabase Auth and then create their profile."""
     try:
         # 1. Invite user in Supabase Auth via Admin API
+        # Email link will redirect to /new-password with tokens in URL hash so they can set a password
+        set_password_url = f"{settings.FRONTEND_URL}/new-password"
         auth_response = supabase_admin.auth.admin.invite_user_by_email(
             payload.email.strip().lower(),
-            options={"data": {"role": payload.role}}
+            options={
+                "data": {"role": payload.role},
+                "redirect_to": set_password_url,
+                "redirectTo": set_password_url,  # some clients use camelCase
+            }
         )
         
         if not hasattr(auth_response, 'user') or not auth_response.user:

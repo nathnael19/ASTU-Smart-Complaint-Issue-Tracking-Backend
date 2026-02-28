@@ -2,6 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, EmailStr
 
+from app.core.config import settings
 from app.core.supabase import supabase_client, supabase_admin
 from app.models.enums import UserRole
 from app.dependencies import get_current_user
@@ -159,7 +160,7 @@ async def forgot_password(payload: PasswordResetRequest):
 
         supabase_client.auth.reset_password_for_email(
             clean_email,
-            {"redirect_to": "http://localhost:5173/new-password"}
+            {"redirect_to": f"{settings.FRONTEND_URL}/new-password"}
         )
         return {"message": "Verification code has been sent to your email."}
     except HTTPException:
