@@ -75,6 +75,7 @@ class CreateComplaintPayload(BaseModel):
     priority: ComplaintPriority = ComplaintPriority.MEDIUM
     department_id: Optional[str] = None
     is_draft: bool = False
+    attachment_url: Optional[str] = None
 
 
 @router.post("/", summary="Submit a new complaint", status_code=201)
@@ -103,6 +104,7 @@ async def create_complaint(
         "priority": payload.priority.value,
         "department_id": payload.department_id,
         "is_draft": payload.is_draft,
+        "attachment_url": payload.attachment_url,
         "submitted_by": profile["id"],
         "ticket_number": ticket_number,
         "status": "OPEN",
