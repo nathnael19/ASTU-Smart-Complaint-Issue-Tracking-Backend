@@ -64,12 +64,15 @@ async def get_complaint(
     return c
 
 
+from app.models.enums import ComplaintPriority, ComplaintCategory
+
+
 # ── POST /complaints ────────────────────────────────────────────────────────────
 class CreateComplaintPayload(BaseModel):
     title: str
     description: str
     category: str
-    priority: str = "MEDIUM"
+    priority: ComplaintPriority = ComplaintPriority.MEDIUM
     department_id: Optional[str] = None
     is_draft: bool = False
 
@@ -81,13 +84,61 @@ async def create_complaint(
 ):
     import random, string
     ticket_number = "ASTU-" + "".join(random.choices(string.digits, k=4))
+    
+    # Map frontend categories to backend enums
+    category_map = {
+        "IT & Network": ComplaintCategory.IT_AND_NETWORK,
+        "Facility & Maintenance": ComplaintCategory.FACILITY_AND_MAINTENANCE,
+        "Academic Affairs": ComplaintCategory.ACADEMIC_AFFAIRS,
+        "Student Services": ComplaintCategory.STUDENT_SERVICES,
+    }
+    
+    # Get backend enum value, fallback to OTHER if not found
+    backend_category = category_map.get(payload.category, ComplaintCategory.OTHER)
+    
     data = {
-        **payload.model_dump(),
+        "title": payload.title,
+        "description": payload.description,
+        "category": backend_category,
+        "priority": payload.priority.value,
+        "department_id": payload.department_id,
+        "is_draft": payload.is_draft,
         "submitted_by": profile["id"],
         "ticket_number": ticket_number,
         "status": "OPEN",
     }
     response = supabase_admin.table("complaints").insert(data).execute()
+    return response.data[0] if response.data else {}
+
+
+# ── POST /complaints/{id}/attachments ──────────────────────────────────────────
+class CreateAttachmentPayload(BaseModel):
+    file_name: str
+    file_size_bytes: int
+    mime_type: str
+    storage_path: str
+
+
+@router.post("/{complaint_id}/attachments", summary="Record a complaint attachment")
+async def create_attachment(
+    complaint_id: str,
+    payload: CreateAttachmentPayload,
+    profile: dict = Depends(get_current_user_profile),
+):
+    # Verify complaint ownership/access
+    complaint = supabase_admin.table("complaints").select("submitted_by").eq("id", complaint_id).single().execute()
+    if not complaint.data:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    
+    if profile["role"] == "STUDENT" and complaint.data["submitted_by"] != profile["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    data = {
+        **payload.model_dump(),
+        "complaint_id": complaint_id,
+        "uploaded_by": profile["id"],
+    }
+    response = supabase_admin.table("complaint_attachments").insert(data).execute()
     return response.data[0] if response.data else {}
 
 
