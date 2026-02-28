@@ -25,17 +25,22 @@ async def list_users(
     offset: int = Query(0),
     _admin: dict = Depends(require_admin),
 ):
-    query = supabase_admin.table("users").select("*", count="exact").is_("deleted_at", "null")
+    query = supabase_admin.table("users").select("*", count="exact").is_("deleted_at", "null").neq("id", _admin["id"])
     if role:
         query = query.eq("role", role)
     if status:
         query = query.eq("status", status)
     if department_id:
         query = query.eq("department_id", department_id)
-        
+
     response = query.range(offset, offset + limit - 1).execute()
-    users = response.data
+    users = list(response.data or [])
     total_count = response.count if hasattr(response, 'count') else len(users)
+
+    # When there are no other users, include the current admin so they see themselves
+    if not users:
+        users = [_admin]
+        total_count = 1
 
     # Pre-fetch counts for students and staff
     for user in users:
@@ -79,7 +84,6 @@ class UpdateUserPayload(BaseModel):
 
 class AdminCreateUserPayload(BaseModel):
     email: str
-    password: str
     full_name: str
     role: UserRole
     department_id: Optional[str] = None
@@ -90,22 +94,21 @@ class AdminCreateUserPayload(BaseModel):
     office_location: Optional[str] = None
 
 
-@router.post("/admin-create", summary="Create a new user (Admin only)")
+@router.post("/admin-create", summary="Create a new user/staff via email invite (Admin only)")
 async def admin_create_user(
     payload: AdminCreateUserPayload,
     _admin: dict = Depends(require_admin),
 ):
-    """Admin-only: Create a new user in Supabase Auth and then create their profile."""
+    """Admin-only: Invite a new user via Supabase Auth and then create their profile."""
     try:
-        # 1. Create user in Supabase Auth via Admin API
-        auth_response = supabase_admin.auth.admin.create_user({
-            "email": payload.email.strip().lower(),
-            "password": payload.password,
-            "email_confirm": True  # Admins don't need to verify for created staff
-        })
+        # 1. Invite user in Supabase Auth via Admin API
+        auth_response = supabase_admin.auth.admin.invite_user_by_email(
+            payload.email.strip().lower(),
+            options={"data": {"role": payload.role}}
+        )
         
-        if not auth_response.user:
-            raise HTTPException(status_code=400, detail="Auth account creation failed")
+        if not hasattr(auth_response, 'user') or not auth_response.user:
+            raise HTTPException(status_code=400, detail="Auth account invitation failed")
             
         user_id = auth_response.user.id
         
@@ -151,3 +154,26 @@ async def update_user(
         raise HTTPException(status_code=400, detail="No fields to update")
     response = supabase_admin.table("users").update(updates).eq("id", user_id).execute()
     return response.data[0] if response.data else {}
+
+
+@router.delete("/{user_id}", summary="Delete a user (Admin only)")
+async def delete_user(
+    user_id: str,
+    admin_profile: dict = Depends(require_admin),
+):
+    """Admin-only: Permanently delete a user from the system and auth database."""
+    # Prevent admin from deleting themselves
+    if admin_profile["id"] == user_id:
+        raise HTTPException(status_code=400, detail="Admins cannot delete their own account")
+        
+    try:
+        # 1. Delete from public users table (Handles app-level cascading if defined in DB)
+        profile_response = supabase_admin.table("users").delete().eq("id", user_id).execute()
+        
+        # 2. Delete from Supabase Auth (This is the ultimate source of truth for logins)
+        auth_response = supabase_admin.auth.admin.delete_user(user_id)
+        
+        return {"detail": "User deleted successfully"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to delete user: {str(e)}")
