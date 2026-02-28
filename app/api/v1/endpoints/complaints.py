@@ -146,33 +146,72 @@ async def create_attachment(
 
 # ── PATCH /complaints/{id} ─────────────────────────────────────────────────────
 class UpdateComplaintPayload(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
     status: Optional[str] = None
     priority: Optional[str] = None
     assigned_to: Optional[str] = None
     department_id: Optional[str] = None
+    attachment_url: Optional[str] = None
     sla_deadline: Optional[str] = None
     resolved_at: Optional[str] = None
 
 
-@router.patch("/{complaint_id}", summary="Update complaint (Staff/Admin)")
+@router.patch("/{complaint_id}", summary="Update complaint")
 async def update_complaint(
     complaint_id: str,
     payload: UpdateComplaintPayload,
-    profile: dict = Depends(require_staff_or_admin),
+    profile: dict = Depends(get_current_user_profile),
 ):
-    updates = payload.model_dump(exclude_none=True)
+    # Fetch existing complaint
+    response = supabase_admin.table("complaints").select("*").eq("id", complaint_id).single().execute()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    c = response.data
+
+    # Access control
+    if profile["role"] == "STUDENT":
+        if c["submitted_by"] != profile["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        if c["status"] != "OPEN":
+            raise HTTPException(status_code=400, detail="Only OPEN complaints can be edited by students")
+        # Students can only update specific fields
+        updates = payload.model_dump(include={"title", "description", "category", "priority", "attachment_url"}, exclude_none=True)
+    else:
+        # Staff/Admin can update everything in the payload
+        if profile["role"] not in ("STAFF", "ADMIN"):
+             raise HTTPException(status_code=403, detail="Access denied")
+        updates = payload.model_dump(exclude_none=True)
+
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+    
     response = supabase_admin.table("complaints").update(updates).eq("id", complaint_id).execute()
     return response.data[0] if response.data else {}
 
 
 # ── DELETE /complaints/{id} ────────────────────────────────────────────────────
-@router.delete("/{complaint_id}", summary="Soft-delete a complaint (Admin)")
+@router.delete("/{complaint_id}", summary="Delete a complaint")
 async def delete_complaint(
     complaint_id: str,
-    _admin: dict = Depends(require_admin),
+    profile: dict = Depends(get_current_user_profile),
 ):
+    # Fetch existing complaint
+    response = supabase_admin.table("complaints").select("*").eq("id", complaint_id).single().execute()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    c = response.data
+
+    # Access control
+    if profile["role"] == "STUDENT":
+        if c["submitted_by"] != profile["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        if c["status"] != "OPEN":
+            raise HTTPException(status_code=400, detail="Only OPEN complaints can be deleted by students")
+    elif profile["role"] != "ADMIN":
+        raise HTTPException(status_code=403, detail="Access denied")
+
     from datetime import datetime, timezone
     supabase_admin.table("complaints").update(
         {"deleted_at": datetime.now(timezone.utc).isoformat()}
