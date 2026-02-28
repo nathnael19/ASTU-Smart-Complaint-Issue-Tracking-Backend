@@ -20,6 +20,9 @@ class SignUpRequest(BaseModel):
     full_name: str
     role: UserRole = UserRole.STUDENT
     department_name: Optional[str] = None
+    student_id: Optional[str] = None
+    phone: Optional[str] = None
+    program: Optional[str] = None
 
 
 @router.post("/register", summary="Register a new user")
@@ -59,8 +62,11 @@ async def register(payload: SignUpRequest):
             "email": clean_email,
             "first_name": first_name,
             "last_name": last_name,
-            "role": payload.role,
+            "role": UserRole.STUDENT,
             "department_id": department_id,
+            "student_id_number": payload.student_id,
+            "phone": payload.phone,
+            "program": payload.program,
             "status": "Active"
         }
         

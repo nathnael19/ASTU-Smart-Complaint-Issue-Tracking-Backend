@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.core.supabase import supabase_admin
+from app.models.enums import UserRole
 from app.dependencies import get_current_user_profile, require_admin, require_staff_or_admin
 
 router = APIRouter()
@@ -54,9 +55,71 @@ class UpdateUserPayload(BaseModel):
     phone: Optional[str] = None
     professional_title: Optional[str] = None
     office_location: Optional[str] = None
+    student_id_number: Optional[str] = None
+    program: Optional[str] = None
     avatar_url: Optional[str] = None
     status: Optional[str] = None
     department_id: Optional[str] = None
+
+
+class AdminCreateUserPayload(BaseModel):
+    email: str
+    password: str
+    full_name: str
+    role: UserRole
+    department_id: Optional[str] = None
+    student_id_number: Optional[str] = None
+    program: Optional[str] = None
+    phone: Optional[str] = None
+    professional_title: Optional[str] = None
+    office_location: Optional[str] = None
+
+
+@router.post("/admin-create", summary="Create a new user (Admin only)")
+async def admin_create_user(
+    payload: AdminCreateUserPayload,
+    _admin: dict = Depends(require_admin),
+):
+    """Admin-only: Create a new user in Supabase Auth and then create their profile."""
+    try:
+        # 1. Create user in Supabase Auth via Admin API
+        auth_response = supabase_admin.auth.admin.create_user({
+            "email": payload.email.strip().lower(),
+            "password": payload.password,
+            "email_confirm": True  # Admins don't need to verify for created staff
+        })
+        
+        if not auth_response.user:
+            raise HTTPException(status_code=400, detail="Auth account creation failed")
+            
+        user_id = auth_response.user.id
+        
+        # 2. Handle Name Splitting
+        name_parts = payload.full_name.strip().split(" ", 1)
+        first_name = name_parts[0]
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+        
+        # 3. Create Profile
+        user_data = {
+            "id": user_id,
+            "email": payload.email.strip().lower(),
+            "first_name": first_name,
+            "last_name": last_name,
+            "role": payload.role,
+            "department_id": payload.department_id,
+            "student_id_number": payload.student_id_number,
+            "program": payload.program,
+            "phone": payload.phone,
+            "professional_title": payload.professional_title,
+            "office_location": payload.office_location,
+            "status": "Active"
+        }
+        
+        profile_response = supabase_admin.table("users").insert(user_data).execute()
+        return profile_response.data[0] if profile_response.data else {}
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.patch("/{user_id}", summary="Update a user (Admin or self)")
