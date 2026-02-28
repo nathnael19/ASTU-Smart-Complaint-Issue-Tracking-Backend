@@ -106,7 +106,8 @@ async def login(payload: LoginRequest):
                 "id": user.id,
                 "email": user.email,
                 "role": profile.get("role") if profile else "STUDENT",
-                "full_name": profile.get("full_name") if profile else "",
+                "full_name": f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip() if profile else "",
+                "student_id": profile.get("student_id_number") if profile else None,
             },
         }
     except Exception as e:
