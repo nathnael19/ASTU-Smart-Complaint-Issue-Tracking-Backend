@@ -140,7 +140,8 @@ async def get_complaint(
     profile: dict = Depends(get_current_user_profile),
 ):
     response = supabase_admin.table("complaints").select(
-        "*, users!submitted_by(full_name, first_name, last_name, email, role, student_id_number)"
+        "*, users!submitted_by(full_name, first_name, last_name, email, role, student_id_number, program, phone),"
+        "assigned_user:users!assigned_to(full_name, first_name, last_name, role)"
     ).eq("id", complaint_id).single().execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Complaint not found")
@@ -273,9 +274,49 @@ async def update_complaint(
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
-    
+
+    new_assigned_to = updates.get("assigned_to")
+    old_assigned_to = c.get("assigned_to")
+    is_new_assignment = (
+        profile["role"] in ("ADMIN", "STAFF")
+        and new_assigned_to
+        and new_assigned_to != old_assigned_to
+    )
+
     response = supabase_admin.table("complaints").update(updates).eq("id", complaint_id).execute()
-    return response.data[0] if response.data else {}
+    updated = response.data[0] if response.data else {}
+
+    if is_new_assignment and updated:
+        # Notify the assigned staff and add a remark to the thread
+        ticket_number = updated.get("ticket_number") or complaint_id[:8]
+        assigner_first = (profile.get("first_name") or "").strip()
+        assigner_last = (profile.get("last_name") or "").strip()
+        assigner_name = f"{assigner_first} {assigner_last}".strip() or profile.get("full_name") or "Admin"
+        staff_res = supabase_admin.table("users").select("first_name, last_name, full_name").eq("id", new_assigned_to).single().execute()
+        staff_name = "Staff"
+        if staff_res.data:
+            s = staff_res.data
+            fn = (s.get("first_name") or "").strip()
+            ln = (s.get("last_name") or "").strip()
+            staff_name = f"{fn} {ln}".strip() or s.get("full_name") or staff_name
+        notif_title = "New complaint assignment"
+        notif_message = f"You have been assigned to complaint {ticket_number} by {assigner_name}."
+        supabase_admin.table("notifications").insert({
+            "user_id": new_assigned_to,
+            "title": notif_title,
+            "message": notif_message,
+            "type": "assignment",
+            "link": f"/staff/tickets/{complaint_id}",
+            "is_read": False,
+        }).execute()
+        remark_content = f"{assigner_name} assigned {staff_name} to this complaint."
+        supabase_admin.table("complaint_remarks").insert({
+            "complaint_id": complaint_id,
+            "author_id": profile["id"],
+            "content": remark_content,
+        }).execute()
+
+    return updated
 
 
 # ── DELETE /complaints/{id} ────────────────────────────────────────────────────

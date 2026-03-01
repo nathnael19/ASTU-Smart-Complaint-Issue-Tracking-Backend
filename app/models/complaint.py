@@ -18,6 +18,7 @@ class ComplaintBase(BaseModel):
     resolved_at: Optional[datetime] = None
     is_draft: bool = False
     satisfaction_rating: Optional[int] = Field(None, ge=1, le=5)
+    satisfaction_message: Optional[str] = None
 
 class ComplaintCreate(ComplaintBase):
     ticket_number: str
@@ -34,6 +35,7 @@ class ComplaintUpdate(BaseModel):
     resolved_at: Optional[datetime] = None
     is_draft: Optional[bool] = None
     satisfaction_rating: Optional[int] = Field(None, ge=1, le=5)
+    satisfaction_message: Optional[str] = None
 
 class Complaint(ComplaintBase, UUIDModel, TimestampModel, SoftDeleteModel):
     ticket_number: str
