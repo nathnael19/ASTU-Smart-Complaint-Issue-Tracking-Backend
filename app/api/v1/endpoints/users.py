@@ -69,6 +69,24 @@ async def get_user(
     return response.data
 
 
+# ── GET /users/by-id-number/{id_number} ───────────────────────────────────────
+@router.get("/by-id-number/{id_number}", summary="Get a user by ID Number (Staff/Admin only)")
+async def get_user_by_id_number(
+    id_number: str,
+    _staff: dict = Depends(require_staff_or_admin),
+):
+    # Decode URL encoded ID numbers (e.g. ugr/31038/15 becomes encoded as ugr%2F31038%2F15)
+    from urllib.parse import unquote
+    decoded_id = unquote(id_number)
+    
+    response = supabase_admin.table("users").select("*").eq("student_id_number", decoded_id).is_("deleted_at", "null").execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return response.data[0]
+
+
 # ── PATCH /users/{user_id} ─────────────────────────────────────────────────────
 class UpdateUserPayload(BaseModel):
     first_name: Optional[str] = None
