@@ -174,12 +174,22 @@ async def get_department_summary(profile: dict = Depends(require_staff_or_admin)
         .gte("resolved_at", one_week_ago)\
         .execute()
     resolved_this_week = resolved_week_res.count or 0
+    
+    # 5. Resolved this week by current user
+    personal_resolved_res = supabase_admin.table("complaints").select("id", count="exact")\
+        .eq("assigned_to", user_id)\
+        .is_("deleted_at", "null")\
+        .in_("status", [ComplaintStatus.RESOLVED.value, ComplaintStatus.CLOSED.value])\
+        .gte("resolved_at", one_week_ago)\
+        .execute()
+    personal_resolved_this_week = personal_resolved_res.count or 0
 
     return {
         "assigned_tickets": assigned_tickets,
         "pending_dept_tasks": pending_dept_tasks,
         "avg_response_time": f"{avg_hrs} hrs",
         "resolved_this_week": resolved_this_week,
+        "personal_resolved_this_week": personal_resolved_this_week,
         "avg_satisfaction_rating": avg_satisfaction
     }
 
