@@ -57,6 +57,44 @@ async def list_users(
     return {"data": users, "total": total_count}
 
 
+@router.get("/department", summary="List users in current department (Staff/Admin)")
+async def get_department_users(profile: dict = Depends(require_staff_or_admin)):
+    dept_id = profile.get("department_id")
+    if not dept_id:
+        # If admin has no dept, they might want all or nothing. 
+        # For simplicity, if no dept, return empty or all admins.
+        if profile["role"] == "ADMIN":
+            query = supabase_admin.table("users").select("*").eq("role", "ADMIN").is_("deleted_at", "null")
+        else:
+            return {"data": [], "total": 0}
+    else:
+        query = supabase_admin.table("users").select("*").eq("department_id", dept_id).is_("deleted_at", "null")
+    
+    response = query.order("full_name").execute()
+    users = response.data or []
+    
+    # Add ticket counts
+    for user in users:
+        if user.get("role") == "STAFF":
+            # Active tasks (OPEN or IN_PROGRESS)
+            active_res = supabase_admin.table("complaints").select("id", count="exact")\
+                .eq("assigned_to", user["id"])\
+                .in_("status", ["OPEN", "IN_PROGRESS"])\
+                .is_("deleted_at", "null")\
+                .execute()
+            user["active_tickets_count"] = active_res.count or 0
+            
+            # Resolved tasks
+            resolved_res = supabase_admin.table("complaints").select("id", count="exact")\
+                .eq("assigned_to", user["id"])\
+                .eq("status", "RESOLVED")\
+                .is_("deleted_at", "null")\
+                .execute()
+            user["resolved_tickets_count"] = resolved_res.count or 0
+
+    return {"data": users, "total": len(users)}
+
+
 # ── GET /users/{user_id} ───────────────────────────────────────────────────────
 @router.get("/{user_id}", summary="Get a user by ID (Staff/Admin only)")
 async def get_user(

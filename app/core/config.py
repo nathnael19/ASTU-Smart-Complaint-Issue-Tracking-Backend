@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     API_V1_PREFIX: str = "/api/v1"
     # Frontend base URL (for password reset and invite redirects). No trailing slash.
-    FRONTEND_URL: str = "http://localhost:5173"
+    FRONTEND_URL: str = "https://astu-smart-complaint-issue-tracking.netlify.app"
 
     # CORS – stored as a comma-separated string in .env, parsed into a list
-    CORS_ORIGINS: Union[List[str], str] = ["http://localhost:5173", "http://localhost:3000"]
+    CORS_ORIGINS: Union[List[str], str] = ["https://astu-smart-complaint-issue-tracking.netlify.app", "http://localhost:5173", "http://localhost:3000"]
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
