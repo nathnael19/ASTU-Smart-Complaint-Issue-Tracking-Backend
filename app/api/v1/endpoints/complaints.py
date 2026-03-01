@@ -244,6 +244,8 @@ class UpdateComplaintPayload(BaseModel):
     attachment_url: Optional[str] = None
     sla_deadline: Optional[str] = None
     resolved_at: Optional[str] = None
+    satisfaction_rating: Optional[int] = None
+    satisfaction_message: Optional[str] = None
 
 
 @router.patch("/{complaint_id}", summary="Update complaint")
@@ -262,10 +264,10 @@ async def update_complaint(
     if profile["role"] == "STUDENT":
         if c["submitted_by"] != profile["id"]:
             raise HTTPException(status_code=403, detail="Access denied")
-        if c["status"] != "OPEN":
-            raise HTTPException(status_code=400, detail="Only OPEN complaints can be edited by students")
+        if c["status"] != "OPEN" and not (c["status"] == "RESOLVED" and (payload.satisfaction_rating is not None or payload.satisfaction_message is not None)):
+            raise HTTPException(status_code=400, detail="Only OPEN complaints can be edited by students (unless providing feedback on a RESOLVED complaint)")
         # Students can only update specific fields
-        updates = payload.model_dump(include={"title", "description", "category", "priority", "attachment_url"}, exclude_none=True)
+        updates = payload.model_dump(include={"title", "description", "category", "priority", "attachment_url", "satisfaction_rating", "satisfaction_message"}, exclude_none=True)
     else:
         # Staff/Admin can update everything in the payload
         if profile["role"] not in ("STAFF", "ADMIN"):
@@ -282,6 +284,9 @@ async def update_complaint(
         and new_assigned_to
         and new_assigned_to != old_assigned_to
     )
+
+    if updates.get("status") == "RESOLVED" and not updates.get("resolved_at"):
+        updates["resolved_at"] = datetime.now(timezone.utc).isoformat()
 
     response = supabase_admin.table("complaints").update(updates).eq("id", complaint_id).execute()
     updated = response.data[0] if response.data else {}
